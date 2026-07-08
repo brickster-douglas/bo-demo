@@ -60,11 +60,11 @@
 
 <!-- Slide 1: Title -->
 <div class="slide active" id="s1">
-  <span class="tag">SAP BO MIGRATION</span>
   <span class="tag">DATABRICKS DEMO</span>
+  <span class="tag">SAP BO MIGRATION</span>
   <h1 style="margin-top:24px">Replacing BO Publications<br>with <span class="accent">Databricks</span></h1>
   <p style="font-size:1.5em;color:#7a9aad;margin-top:12px">Config-driven, per-recipient report distribution</p>
-  <p style="margin-top:40px;color:#556b78">Databricks Solutions Architect <span style="color:#FF3621">(Updated with DAIS 2026)</span></p>
+  <p style="margin-top:40px;color:#556b78">Douglas Garcia &bull; Databricks Solutions Architect &bull; July 2026 <span style="color:#FF3621">(Updated with DAIS 2026)</span></p>
 </div>
 
 <!-- Slide 2: The Challenge -->
@@ -327,18 +327,17 @@
     <div>
       <table class="comparison-table" style="font-size:0.78em">
         <thead>
-          <tr><th>Component</th><th>Compute</th><th>Formula</th><th style="text-align:right">$/month</th></tr>
+          <tr><th>Component</th><th>Compute</th><th style="text-align:right">Min</th><th style="text-align:right">Typical</th><th style="text-align:right">Max</th></tr>
         </thead>
         <tbody>
-          <tr><td><strong>Lakeflow Jobs</strong><br><span style="font-size:0.75em;color:#7a9aad">24 reports, 286 runs/mo</span></td><td style="color:#4CAF50">Jobs<br><span style="font-size:0.8em">$0.47/DBU</span></td><td>24.1 hr &times; 4 DBU/hr<br><span style="font-size:0.8em;color:#4CAF50">No idle tail</span></td><td style="text-align:right">$45.36</td></tr>
-          <tr><td><strong>Subscriptions</strong><br><span style="font-size:0.75em;color:#7a9aad">10 broadcast dashboards</span></td><td>SQL<br><span style="font-size:0.8em">$0.91/DBU</span></td><td>1.67 hr &times; 4 DBU/hr</td><td style="text-align:right">$6.08</td></tr>
-          <tr><td><strong>Dashboard views</strong><br><span style="font-size:0.75em;color:#7a9aad">15 users, 200 views/mo</span></td><td>SQL<br><span style="font-size:0.8em">$0.91/DBU</span></td><td>8.4 hr &times; 4 DBU/hr<br><span style="font-size:0.8em;color:#7a9aad">incl. 5 min idle tail</span></td><td style="text-align:right">$30.72</td></tr>
-          <tr><td><strong>Recipient Manager</strong></td><td>Apps<br><span style="font-size:0.8em">$1.00/DBU</span></td><td>3.3 hr &times; 0.5 DBU/hr <span style="color:#4CAF50;font-size:0.8em">scale-to-zero</span></td><td style="text-align:right">$1.67</td></tr>
-          <tr><td><strong>Storage</strong></td><td>&mdash;</td><td>&lt; 100 MB</td><td style="text-align:right">&lt; $0.10</td></tr>
-          <tr style="border-top:2px solid #FF3621"><td><strong style="color:#FF3621">TOTAL</strong></td><td></td><td><strong>~140 DBU/month</strong></td><td style="text-align:right"><strong style="color:#FF3621;font-size:1.2em">~$84</strong></td></tr>
+          <tr><td><strong>Lakeflow Jobs</strong><br><span style="font-size:0.7em;color:#7a9aad">Jobs Serverless $0.47 — no idle tail</span></td><td style="color:#4CAF50;font-size:0.8em">12 reports<br>weekly</td><td style="text-align:right">$5</td><td style="text-align:right">$45</td><td style="text-align:right;color:#7a9aad">$376</td></tr>
+          <tr><td><strong>Subscriptions</strong><br><span style="font-size:0.7em;color:#7a9aad">SQL Serverless $0.91</span></td><td style="font-size:0.8em">Shared WH<br>vs scattered</td><td style="text-align:right">$2</td><td style="text-align:right">$6</td><td style="text-align:right;color:#7a9aad">$85</td></tr>
+          <tr><td><strong>Dashboard views</strong><br><span style="font-size:0.7em;color:#7a9aad">SQL Serverless $0.91</span></td><td style="font-size:0.8em">5 users<br>vs 50 24/7</td><td style="text-align:right">$3</td><td style="text-align:right">$31</td><td style="text-align:right;color:#7a9aad">$641</td></tr>
+          <tr><td><strong>Recipient Manager</strong><br><span style="font-size:0.7em;color:#7a9aad">Apps $1.00 — scale-to-zero</span></td><td style="font-size:0.8em">Idle<br>vs always-on</td><td style="text-align:right">$0</td><td style="text-align:right">$2</td><td style="text-align:right;color:#7a9aad">$360</td></tr>
+          <tr style="border-top:2px solid #FF3621"><td><strong style="color:#FF3621">TOTAL</strong></td><td></td><td style="text-align:right"><strong style="color:#4CAF50">~$10</strong></td><td style="text-align:right"><strong style="color:#FF3621;font-size:1.1em">~$84</strong></td><td style="text-align:right;color:#7a9aad">~$1,462</td></tr>
         </tbody>
       </table>
-      <p style="font-size:0.65em;color:#556b78;margin-top:6px">(*) Estimates from initial scoping — pending sizing questionnaire. With commit: ~$50. Jobs have no idle tail — pay only for runtime.</p>
+      <p style="font-size:0.6em;color:#556b78;margin-top:6px">Min = low usage + 1-min auto-stop. Typical = 24 reports, 15 users. Max = 50 reports, 50 users, always-on app. With commit (40% off): typical ~$50.</p>
     </div>
     <div>
       <h3 style="font-size:1.1em">vs SAP BusinessObjects</h3>
@@ -350,11 +349,11 @@
           <tr><td>User licenses</td><td>$1,250-2,500/mo</td><td><span class="check">$0</span></td></tr>
           <tr><td>Infrastructure</td><td>$500-2,000/mo</td><td><span class="check">Included</span></td></tr>
           <tr><td>Admin</td><td>$500-1,000/mo</td><td><span class="check">Self-service</span></td></tr>
-          <tr style="border-top:2px solid #FF3621"><td><strong>Annual</strong></td><td><strong style="color:#FF3621">$27-66K</strong></td><td><strong style="color:#4CAF50">~$600-1K</strong></td></tr>
+          <tr style="border-top:2px solid #FF3621"><td><strong>Annual</strong></td><td><strong style="color:#FF3621">$27-66K</strong></td><td><strong style="color:#4CAF50">$120-6K</strong></td></tr>
         </tbody>
       </table>
       <div style="background:rgba(255,54,33,0.08);border:1px solid rgba(255,54,33,0.2);border-radius:8px;padding:12px;margin-top:12px">
-        <p style="font-size:0.95em;color:#FF3621;font-weight:700;margin-bottom:4px">96-98% cost reduction</p>
+        <p style="font-size:0.95em;color:#FF3621;font-weight:700;margin-bottom:4px">90-99% cost reduction</p>
         <p style="font-size:0.75em">No per-seat fees. Adding 100 recipients = $0. Serverless scales to zero. BO 4.3 end of maintenance: Dec 2026.</p>
       </div>
     </div>
@@ -392,9 +391,9 @@
   <h1>Thank You</h1>
   <p style="font-size:1.5em;color:#7a9aad;margin-top:16px">Questions?</p>
   <div style="margin-top:48px;color:#556b78">
-    <p style="font-size:1.1em"><strong>Your Name</strong> &bull; Solutions Architect</p>
-    <p style="font-size:1em">your.name@databricks.com</p>
-    <p style="font-size:1em;margin-top:12px"><strong>Account Executive</strong></p>
+    <p style="font-size:1.1em"><strong>Douglas Garcia</strong> &bull; Solutions Architect</p>
+    <p style="font-size:1em">douglas.garcia@databricks.com</p>
+    <p style="font-size:1em;margin-top:12px"><strong>Mattias Bromark</strong> &bull; Account Executive</p>
   </div>
 </div>
 

@@ -7,30 +7,6 @@
 
 ---
 
-## Assumptions (To Be Validated)
-
-These numbers come from our initial scoping calls (May-June 2026). The customer has not yet returned the sizing questionnaire. All figures marked with (*) are estimates that should be validated.
-
-| Parameter | Estimated Value | Source |
-|-----------|----------------|--------|
-| BO reports to migrate | ~24 (*) | Playbook question — not yet confirmed |
-| Scheduled report runs per day | 50-100 (*) | Amplify deck assumption — not confirmed |
-| Total recipients | 20-50 (*) | Amplify deck assumption — not confirmed |
-| BO universes (semantic layers) | 3+ | Confirmed by the customer (May 25 scoping call) |
-| Recipients are external | Yes | Confirmed — not in Entra ID |
-| Countries/regions | ~8 (up to 22) | 8 in demo data, the customer operates in 22 countries |
-| Data volume per report | Small (< 100 rows per filtered query) | Based on demo data structure |
-
-**What we DON'T know yet:**
-- Exact number of reports
-- How many are broadcast (same data to all) vs per-recipient filtered
-- Exact recipient count per report
-- Frequency per report (daily, weekly, monthly, or mixed)
-- Report complexity (simple tables vs multi-page with charts)
-- Data volume per report at production scale
-
----
-
 ## Pricing Rates (Azure Premium, EU North)
 
 All rates are list prices (pay-as-you-go). Commitment/enterprise agreements typically reduce these by 30-50%.
@@ -57,222 +33,157 @@ All rates are list prices (pay-as-you-go). Commitment/enterprise agreements typi
 ```
 Monthly cost = (active hours/month) × (DBU/hr) × ($/DBU)
 Active hours = query time + idle tail per wake-up
-Cost per wake-up = (query minutes + 5 min idle) / 60 × 4 DBU/hr × $0.91
 ```
-
-**Example:** 1 wake-up, 2 min of queries + 5 min idle = 7 min = $0.43
 
 ---
 
-## Cost Model — Based on Estimated Report Volume
+## Cost Model — Min / Max Range per Component
 
-### Scenario: ~24 Reports, 50-100 Runs/Day, 20-50 Recipients
-
-We model this as a daily batch: all reports run in a single window (e.g., 06:00-07:00 every morning), keeping the warehouse warm once.
+Each component is modeled with a **minimum** (optimized scheduling, low usage, 1-min auto-stop) and **maximum** (scattered usage, heavy interactive viewing, 5-min auto-stop) scenario.
 
 ---
 
-### Component 1: Config-Driven Lakeflow Jobs (~24 reports)
+### Component 1: Config-Driven Lakeflow Jobs
 
-**What it does:** Each report is a Lakeflow Job running on **serverless Jobs compute**. It reads the recipient config, runs SQL queries per recipient via `spark.sql()`, renders output (HTML/CSV/Excel), and sends emails.
+**Compute type:** Jobs Serverless ($0.47/DBU) — no idle tail, pay only for runtime.
 
-**Important:** The Lakeflow Job runs entirely on **serverless Jobs compute** ($0.47/DBU) — not on a SQL warehouse. The `spark.sql()` calls execute on the Jobs cluster itself. No SQL warehouse is involved.
+| Scenario | Reports | Runs/month | Runtime/run | Total hours | DBUs | $/month |
+|----------|---------|-----------|-------------|-------------|------|---------|
+| **Minimum** (12 reports, weekly) | 12 | 48 | 3 min | 2.4 hr | 9.6 | **$4.51** |
+| **Typical** (24 reports, mixed daily/weekly/monthly) | 24 | 286 | 5 min | 24.1 hr | 96.5 | **$45.36** |
+| **Maximum** (50 reports, mostly daily, complex) | 50 | 1,200 | 10 min | 200 hr | 800 | **$376.00** |
 
-**Key modeling decision:** Not all 24 reports run every day. Typical BO schedules are a mix:
+**Formula:** `runs/month × minutes/run ÷ 60 × 4 DBU/hr × $0.47`
 
-| Frequency | Reports (*) | Runs/month | Recipients per run (*) |
-|-----------|-------------|------------|----------------------|
-| Daily | 8 | 8 × 30 = 240 | 10-20 each |
-| Weekly | 10 | 10 × 4 = 40 | 20-30 each |
-| Monthly | 6 | 6 × 1 = 6 | 30-50 each |
-| **Total** | **24** | **286 runs/month** | **Avg ~20** |
-
-**Per run:** Each job queries ~20 recipients × 1 query each on small data, renders reports, sends emails. Estimated total runtime: ~5 min per run (query + render + send).
-
-**Jobs compute cost:**
-
-Serverless Jobs compute starts in seconds and bills for actual runtime only. No idle tail — the cluster is released as soon as the job finishes.
-
-```
-Daily jobs (8 reports × 30 days):
-  240 runs × 5 min = 1,200 min = 20 hr
-
-Weekly jobs (10 reports × 4 weeks):
-  40 runs × 5 min = 200 min = 3.33 hr
-
-Monthly jobs (6 reports × 1):
-  6 runs × 8 min = 48 min = 0.80 hr
-
-Total Jobs compute: 20 + 3.33 + 0.80 = 24.13 hr
-24.13 hr × 4 DBU/hr = 96.52 DBU
-96.52 DBU × $0.47 = $45.36/month
-```
-
-**Note:** Serverless Jobs compute has no idle tail — you only pay for the time the job is actually running. This is a significant cost advantage over running queries through a SQL warehouse.
-
-**Subtotal: $45.36/month**
+**Why there's no idle tail:** Serverless Jobs compute is released immediately when the job finishes. You pay only for actual processing time.
 
 ---
 
-### Component 2: AI/BI Dashboard Subscriptions (broadcast reports)
+### Component 2: AI/BI Dashboard Subscriptions
 
-**What it does:** For reports where everyone gets the same data (no per-recipient filtering), native subscriptions handle delivery with zero code. We estimate ~40% of the 24 reports are broadcast.
+**Compute type:** SQL Serverless ($0.91/DBU). Cost depends on whether subscriptions share a warehouse warm window with other activity.
 
-| Parameter | Value | Reasoning |
-|-----------|-------|-----------|
-| Broadcast reports | ~10 (*) | ~40% of 24 reports — common split per industry benchmarks |
-| Dashboards to subscribe | ~10 | One dashboard per broadcast report |
-| Subscription frequency | Mixed (daily/weekly) | Same mix as above |
-| Subscription runs/month | ~100 | 5 daily × 30 + 5 weekly × 4 |
-| Refresh time per run | ~1 min | 5-6 widgets, small data |
+| Scenario | Dashboards | Runs/month | Refresh time | Idle tail | Total hours | DBUs | $/month |
+|----------|-----------|-----------|-------------|-----------|-------------|------|---------|
+| **Minimum** (few dashboards, back-to-back with Jobs) | 5 | 40 | 1 min | 0 min (shared) | 0.67 hr | 2.7 | **$2.43** |
+| **Typical** (10 dashboards, mostly back-to-back) | 10 | 100 | 1 min | 0 min (shared) | 1.67 hr | 6.7 | **$6.08** |
+| **Maximum** (20 dashboards, separate schedules, 5-min idle each) | 20 | 200 | 2 min | 5 min | 23.3 hr | 93.3 | **$84.93** |
 
-**SQL Warehouse cost (scheduled back-to-back with Lakeflow Jobs):**
+**Formula:** `runs/month × (refresh_min + idle_min) ÷ 60 × 4 DBU/hr × $0.91`
 
-```
-Subscription refreshes run in the same daily window as Jobs.
-Incremental query time: 100 runs × 1 min = 100 min = 1.67 hr
-No extra idle tail (warehouse already warm from Jobs).
-1.67 hr × 4 DBU/hr = 6.68 DBU
-6.68 DBU × $0.91 = $6.08/month
-```
-
-**No per-delivery fee.** Sending to 20 or 100 recipients costs the same — the query runs once.
-
-**Subtotal: $6.08/month**
+**Key insight:** If subscriptions run right after the Lakeflow Jobs (e.g., 07:05 after the job at 07:00), the warehouse is already warm — no idle tail cost. Scattered scheduling is significantly more expensive.
 
 ---
 
 ### Component 3: Dashboard Interactive Viewing
 
-**What it does:** Country managers and internal users open dashboards to explore data interactively.
+**Compute type:** SQL Serverless ($0.91/DBU). Cost is dominated by the idle tail per warehouse wake-up, not the actual query time.
 
-| Parameter | Value | Reasoning |
-|-----------|-------|-----------|
-| Interactive users | 15 (*) | 10 country managers + 5 internal |
-| Dashboards viewed | ~10 of 24 (the ones with interactive value) | Not all reports need interactive access |
-| Views per week | 50 (*) | ~3 per user |
-| Views per month | 200 | — |
-| Query time per view | ~20 sec (5 widgets on small data) | Estimated |
-| Wake-ups per day | ~4 (*) | Morning, midday, afternoon, end of day |
-| Idle tail per wake-up | 5 min | Serverless minimum |
+| Scenario | Users | Views/month | Query time/view | Wake-ups/day | Idle tail | Total hours | DBUs | $/month |
+|----------|-------|-------------|----------------|-------------|-----------|-------------|------|---------|
+| **Minimum** (few users, clustered morning view, 1-min auto-stop) | 5 | 40 | 15 sec | 1 | 1 min | 0.83 hr | 3.3 | **$3.03** |
+| **Typical** (15 users, 4 clusters/day, 5-min auto-stop) | 15 | 200 | 20 sec | 4 | 5 min | 8.44 hr | 33.8 | **$30.72** |
+| **Maximum** (50 users, continuous use during business hours) | 50 | 1,000 | 20 sec | always-on 8hr/day | N/A | 176 hr | 704 | **$640.64** |
 
-**SQL Warehouse cost:**
+**Formula:** `(views × sec/view ÷ 3600 + wake-ups/day × workdays × idle_min ÷ 60) × 4 DBU/hr × $0.91`
 
-```
-Query time: 200 views × 20 sec = 4,000 sec = 67 min = 1.11 hr
-Idle tail: 4 wake-ups/day × 22 workdays × 5 min = 440 min = 7.33 hr
-Total: 1.11 + 7.33 = 8.44 hr
-8.44 hr × 4 DBU/hr = 33.76 DBU
-33.76 DBU × $0.91 = $30.72/month
-```
-
-**Note:** If users view dashboards during the morning window when the Lakeflow Jobs already warmed the warehouse, the idle tail overlaps. Realistic cost may be 30-50% lower.
-
-**Subtotal: ~$30.72/month** (worst case)
+**Why the range is so wide:** The minimum assumes 5 users checking once a day in the morning (1 wake-up, 1-min auto-stop = $3/month). The maximum assumes 50 users viewing throughout the day keeping the warehouse running continuously during business hours (8 hr/day × 22 days = $641/month). The typical case is in between.
 
 ---
 
 ### Component 4: Recipient Manager App
 
-**What it does:** Admin manages recipients, filters, and reviews audit logs. Scales to zero when not in use.
+**Compute type:** Interactive Serverless ($1.00/DBU). Medium app = 0.5 DBU/hr. Scales to zero when idle.
 
-| Parameter | Value | Reasoning |
-|-----------|-------|-----------|
-| Uses per month | 20 (5x/week) | Admin tasks: add/edit recipients, review audit log |
-| Duration per use | 10 min | Estimated |
-| App compute size | Medium (0.5 DBU/hr) | Default |
+| Scenario | Usage pattern | Active hours/month | DBUs | $/month |
+|----------|-------------|-------------------|------|---------|
+| **Minimum** (occasional admin use, scale-to-zero) | 2x/week × 5 min | 0.67 hr | 0.33 | **$0.33** |
+| **Typical** (regular admin use, scale-to-zero) | 5x/week × 10 min | 3.33 hr | 1.67 | **$1.67** |
+| **Maximum** (always-on, no scale-to-zero, 24/7) | 24 × 30 = 720 hr | 720 hr | 360 | **$360.00** |
 
-**App compute cost (scale-to-zero — $0 when idle):**
+**Formula:** `active_hours × 0.5 DBU/hr × $1.00`
 
-```
-20 uses × 10 min = 200 min = 3.33 hr
-3.33 hr × 0.5 DBU/hr = 1.67 DBU
-1.67 DBU × $1.00 = $1.67/month
-```
-
-**Subtotal: $1.67/month**
+**Why the range is so wide:** With scale-to-zero (default), the app costs pennies — it only runs when someone opens it. If you disable scale-to-zero and keep it running 24/7 (for instant response time), it costs $360/month. There is no reason to run it 24/7 for an admin tool used a few times a week.
 
 ---
 
 ### Component 5: Storage
 
-| Table | Rows (at scale) | Size |
-|-------|-----------------|------|
-| recipient_config | ~50-100 | < 10 KB |
-| ~24 report data tables | Varies — likely 100-10K rows each | < 10 MB total |
-| delivery_audit_log | ~286 entries/day × 365 = ~104K/yr | < 50 MB |
-| Dashboard definitions | 10-24 dashboards | Metadata only |
+| Scenario | Data volume | $/month |
+|----------|------------|---------|
+| **All scenarios** | < 100 MB (config tables + audit log) | **< $0.10** |
 
-**Cost: < $0.10/month.** Negligible even at scale.
+Storage is negligible regardless of usage pattern. Even with 100K audit log entries per year, the data is under 100 MB.
 
 ---
 
-## Summary — Estimated Monthly Cost (~24 Reports)
+## Summary — Monthly Cost Range
 
-| Component | Compute type | How it's calculated | DBU/month | $/month |
-|-----------|-------------|-------------------|-----------|---------|
-| **Lakeflow Jobs** (24 reports, 286 runs/mo) | Jobs Serverless ($0.47) | 24.1 hr × 4 DBU/hr — no idle tail | 97 | **$45.36** |
-| **Dashboard Subscriptions** (10 broadcast) | SQL Serverless ($0.91) | 1.67 hr × 4 DBU/hr (back-to-back) | 7 | **$6.08** |
-| **Dashboard interactive** (15 users) | SQL Serverless ($0.91) | 8.44 hr × 4 DBU/hr (incl. idle tail) | 34 | **$30.72** |
-| **Recipient Manager App** | Interactive Serverless ($1.00) | 3.33 hr × 0.5 DBU/hr (scale-to-zero) | 2 | **$1.67** |
-| **Storage** | — | < 100 MB total | — | **< $0.10** |
-| **TOTAL** | | | **~140 DBU** | **~$84/month** |
+| Component | Compute | Min | Typical | Max | What drives the range |
+|-----------|---------|-----|---------|-----|----------------------|
+| **Lakeflow Jobs** | Jobs ($0.47) | **$5** | **$45** | **$376** | Number of reports × frequency × complexity |
+| **Subscriptions** | SQL ($0.91) | **$2** | **$6** | **$85** | Shared vs scattered scheduling |
+| **Interactive views** | SQL ($0.91) | **$3** | **$31** | **$641** | User count × usage pattern × auto-stop setting |
+| **Recipient Manager** | Apps ($1.00) | **$0.33** | **$2** | **$360** | Scale-to-zero vs always-on |
+| **Storage** | — | **$0** | **$0** | **$0** | Negligible |
+| **TOTAL** | | **~$10** | **~$84** | **~$1,462** | |
+
+### With optimizations applied
+
+| Optimization | Effect on typical cost |
+|-------------|----------------------|
+| 1-min auto-stop (API setting) | Typical drops from $84 to ~$55 |
+| Databricks commit (40% discount) | Typical drops from $84 to ~$50 |
+| Both optimizations | Typical drops to **~$35** |
+| Both + batch scheduling | **~$25** |
 
 ---
 
-## Sensitivity Analysis
+## Realistic Range for Most Customers
 
-| Scenario | Change | Monthly Cost |
-|----------|--------|-------------|
-| **Base estimate** | As above (24 reports, 50 recipients) | **~$84** |
-| **Optimized scheduling** | Subscriptions in Job window, users view during same window | **~$60** |
-| **Auto-stop at 1 min** (API) | SQL WH idle tail drops from 5 min to 1 min (Jobs unaffected — no idle tail) | **~$55** |
-| **With Databricks commit** (40% discount) | All DBU rates × 0.6 | **~$50** |
-| **Commit + 1 min auto-stop** | Both optimizations | **~$35** |
-| **Larger volume** (50 reports, 100 recipients) | 2× Jobs compute, same SQL WH pattern | **~$130** |
-| **Smaller volume** (12 reports, 20 recipients) | Half Jobs compute | **~$60** |
+The min and max above include extreme scenarios (always-on app, 50 continuous users). For a realistic deployment:
+
+| Scenario | Description | Monthly Cost |
+|----------|-------------|-------------|
+| **Small** | 12 reports, weekly, 5 users, scale-to-zero | **$10 - $25** |
+| **Medium** | 24 reports, mixed schedule, 15 users | **$50 - $100** |
+| **Large** | 50 reports, daily, 50 users, interactive portal | **$200 - $500** |
+
+With a Databricks commit: multiply by 0.6.
 
 ---
 
 ## vs SAP BusinessObjects
 
-| | SAP BO (50 users) | Databricks (~24 reports, 50 recipients) |
-|---|---|---|
-| User licenses | $1,250-2,500/month | $0 (no per-seat fees) |
-| Server infrastructure | $500-2,000/month | Included in serverless DBU rate |
-| BO admin / Crystal Reports developer | $500-1,000/month (partial FTE) | Self-service, config-driven |
-| **Monthly total** | **$2,250-5,500** | **~$84** (list) / **~$50** (commit) |
-| **Annual total** | **$27,000-66,000** | **~$600-1,000** |
-| **Savings** | — | **96-98%** |
+| | SAP BO (50 users) | Databricks (typical) | Databricks (range) |
+|---|---|---|---|
+| User licenses | $1,250-2,500/month | $0 | $0 |
+| Server infrastructure | $500-2,000/month | Included | Included |
+| Admin / developer | $500-1,000/month | Self-service | Self-service |
+| **Monthly total** | **$2,250-5,500** | **~$84** | **$10-500** |
+| **Annual total** | **$27,000-66,000** | **~$1,000** | **$120-6,000** |
+| **Savings** | — | **96-98%** | **90-99%** |
 
-**SAP BO 4.3 reaches end of maintenance December 2026** — migration is not optional.
+**Key advantage:** No per-seat licensing. Adding 100 more recipients costs $0. Cost scales with compute usage, not with user count.
+
+**SAP BO 4.3 reaches end of maintenance December 2026.**
 
 ---
 
 ## Caveats and Disclaimers
 
-1. **These estimates are preliminary.** They are based on initial scoping conversations (May-June 2026), not confirmed inventory data from the customer. The sizing questionnaire has been sent but not yet returned. Actual costs will be refined once we have: exact report count, recipient lists, frequency per report, data volume per query, and report complexity.
+1. **These estimates are preliminary.** Based on initial scoping, not confirmed inventory data. Actual costs depend on: exact report count, recipient lists, frequency, data volume, and query complexity.
 
-2. **Serverless SQL warehouse** — all estimates assume a serverless SQL warehouse with auto-stop at 5 minutes. Serverless eliminates VM management, includes infrastructure costs in the DBU rate ($0.91), and starts in 2-6 seconds. There is no separate Azure VM bill. Setting auto-stop to 1 minute (via API) would reduce idle costs by ~80%.
+2. **Serverless SQL warehouse** — all estimates assume serverless compute. No separate Azure VM bill. Auto-stop at 5 minutes (default) or 1 minute (API setting). Startup in 2-6 seconds.
 
-3. **Batch scheduling is key.** The cost model assumes all daily reports run in a single morning window (e.g., 06:00-07:00), sharing one warehouse warm session. If reports run at scattered times throughout the day, each independent wake-up adds a 5-minute idle tail (~$0.30 per wake-up). Scattered scheduling could increase costs by 50-100%.
+3. **Batch scheduling is the single biggest cost lever.** Running all reports in one morning window vs scattered throughout the day can mean 2-3× difference in SQL warehouse cost.
 
-4. **Data volume is assumed small.** If production report queries return 10K+ rows or join large tables, query times will increase. This model assumes < 100 rows per filtered query based on the demo data structure.
+4. **Data volume is assumed small.** If production queries return 10K+ rows or join large tables, job runtimes increase and the cost shifts toward the upper end of the range.
 
-5. **No per-seat licensing.** Adding 100 new recipients costs $0 in Databricks compute. The Lakeflow Job runs the same number of queries regardless of whether you email 10 or 100 people (the query runs once per region/filter, not once per email). Dashboard Subscriptions similarly run the query once and broadcast the result.
+5. **No per-seat licensing.** Adding recipients costs $0 in compute. The job runs one query per filter combination, not per email address.
 
-6. **With a Databricks commit** (enterprise agreement), DBU rates are typically 30-50% lower. The estimates above use list prices. With a 40% commit discount, the monthly cost drops to ~$64.
+6. **With a Databricks commit** (enterprise agreement), DBU rates are typically 30-50% lower. Apply a 0.6× multiplier to all estimates for committed pricing.
 
-7. **Incremental cost only.** These numbers represent the incremental cost of the BO replacement workload. They do not include the customer's existing Databricks consumption (DWH migration, Modern Data Platform, etc.) which already covers the base SQL warehouse usage.
+7. **Incremental cost only.** These numbers are for the BO replacement workload only. They do not include existing Databricks consumption (DWH migration, analytics, etc.).
 
-8. **The Lakeflow Job is the bridge.** When Databricks ships native report bursting (~Q4 FY27), the Job becomes optional for most reports. The data layer (tables, Metric Views, dashboards) built now is exactly what native bursting will use. No wasted investment.
-
----
-
-## What We Need from the Customer to Refine This Estimate
-
-1. Complete the sizing questionnaire (sent June 2026)
-2. Provide a BO report inventory: report name, frequency, recipient count, filter type
-3. Confirm how many reports are broadcast vs per-recipient filtered
-4. Share sample data volumes (row counts for the tables behind the top 5 reports)
-5. Confirm the production schedule — single morning batch or scattered throughout the day?
+8. **The Lakeflow Job is the bridge.** When native report bursting ships (~Q4 FY27), the Job becomes optional for most reports. The data layer built now is exactly what native bursting will use. No wasted investment.
